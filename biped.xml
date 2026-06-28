@@ -1,0 +1,88 @@
+<mujoco model="biped">
+  <!-- First-iteration biped: floating pelvis + two legs. Each leg has a 2-DOF
+       hip (roll about x, pitch about y, stacked as two hinges on the thigh body)
+       and a 1-DOF knee (pitch about y). 6 actuated joints total. The feet are
+       spheres (point contact, no ankle). With every joint at 0 the legs are
+       straight and the foot spheres rest on the floor, so the nominal standing
+       pose (biped_env.NOMINAL_POSE) is all zeros. -->
+  <!-- Interpret all joint ranges (and other angles) in radians, not the MuJoCo
+       default of degrees -- otherwise range="-0.8 0.8" would pin the joint to
+       +/-0.8 DEGREES and the legs could not move. -->
+  <compiler angle="radian"/>
+  <!-- timestep = 1/SIM_HZ (300 Hz). biped_env / main also set this in code so
+       the inner (100 Hz) and outer (30 Hz) loops land on whole step counts. -->
+  <option timestep="0.005" gravity="0 0 -9.81" integrator="implicitfast"/>
+
+  <default>
+    <joint damping="0.5" armature="0.02" limited="true"/>
+    <geom friction="1.0 0.05 0.01" rgba="0.6 0.6 0.7 1"/>
+    <motor gear="1" ctrlrange="-40 40"/>
+  </default>
+
+  <worldbody>
+    <light pos="0 0 3" dir="0 0 -1"/>
+    <geom name="floor" type="plane" size="0 0 0.1" rgba="0.85 0.85 0.85 1"/>
+
+    <!-- Spawn height matches the crouched NOMINAL_POSE (knees bent, hips flexed)
+         in biped_env.py, so the foot spheres start resting on the floor. -->
+    <body name="pelvis" pos="0 0 0.7428">
+      <freejoint name="root"/>
+      <geom type="box" size="0.09 0.12 0.06" mass="6.0"/>
+
+      <!-- ===================== LEFT LEG ===================== -->
+      <body name="left_thigh" pos="0 0.10 -0.06">
+        <joint name="left_hip_roll"  axis="1 0 0" range="-0.8 0.8"/>
+        <joint name="left_hip_pitch" axis="0 1 0" range="-1.8 1.8"/>
+        <geom type="capsule" fromto="0 0 0 0 0 -0.32" size="0.04" mass="3.0"/>
+
+        <body name="left_shin" pos="0 0 -0.32">
+          <joint name="left_knee" axis="0 1 0" range="-2.4 0.0"/>
+          <geom type="capsule" fromto="0 0 0 0 0 -0.32" size="0.035" mass="2.0"/>
+
+          <body name="left_foot" pos="0 0 -0.32">
+            <geom name="left_foot" type="sphere" pos="0 0 0" size="0.05" mass="0.5"
+                  friction="2.0 0.05 0.01"/>
+          </body>
+        </body>
+      </body>
+
+      <!-- ===================== RIGHT LEG ==================== -->
+      <body name="right_thigh" pos="0 -0.10 -0.06">
+        <joint name="right_hip_roll"  axis="1 0 0" range="-0.8 0.8"/>
+        <joint name="right_hip_pitch" axis="0 1 0" range="-1.8 1.8"/>
+        <geom type="capsule" fromto="0 0 0 0 0 -0.32" size="0.04" mass="3.0"/>
+
+        <body name="right_shin" pos="0 0 -0.32">
+          <joint name="right_knee" axis="0 1 0" range="-2.4 0.0"/>
+          <geom type="capsule" fromto="0 0 0 0 0 -0.32" size="0.035" mass="2.0"/>
+
+          <body name="right_foot" pos="0 0 -0.32">
+            <geom name="right_foot" type="sphere" pos="0 0 0" size="0.05" mass="0.5"
+                  friction="2.0 0.05 0.01"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <!-- Actuator order defines the joint vector used everywhere (JOINT_NAMES):
+       [L hip roll, L hip pitch, L knee,
+        R hip roll, R hip pitch, R knee] -->
+  <actuator>
+    <motor name="left_hip_roll"   joint="left_hip_roll"/>
+    <motor name="left_hip_pitch"  joint="left_hip_pitch"/>
+    <motor name="left_knee"       joint="left_knee"/>
+    <motor name="right_hip_roll"  joint="right_hip_roll"/>
+    <motor name="right_hip_pitch" joint="right_hip_pitch"/>
+    <motor name="right_knee"      joint="right_knee"/>
+  </actuator>
+
+  <!-- Initial state = the crouched nominal stance (biped_env.NOMINAL_POSE) at
+       the nominal pelvis height. qpos = freejoint(x y z, quat w x y z) then the
+       6 joints in actuator order. Angles are radians (compiler angle="radian"):
+       hip_pitch = +0.15, knee = -0.30. SimMotor resets to this keyframe, and
+       loading the model in a viewer shows the biped already in this pose. -->
+  <keyframe>
+    <key name="home" qpos="0 0 0.7428  1 0 0 0   0 0.15 -0.3   0 0.15 -0.3"/>
+  </keyframe>
+</mujoco>

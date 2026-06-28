@@ -1,0 +1,6 @@
+mujoco>=3.8.0
+numpy
+scipy
+gymnasium>=1.2.0
+stable-baselines3>=2.8.0
+torch>=2.0.0
