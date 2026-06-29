@@ -20,7 +20,7 @@ N_JOINTS = len(JOINT_NAMES)
 # stays directly under the hip (with point feet and no ankle, bending only the
 # knee would swing the foot up off the floor). The pelvis spawn height in
 # biped.xml is set to match so the feet start resting on the ground.
-_KNEE_BEND = -0.30            # rad; negative = bent (knee range is [-2.4, 0])
+_KNEE_BEND = -0.8           # rad; negative = bent (knee range is [-2.4, 0])
 _HIP_FLEX = -_KNEE_BEND / 2   # rad; keeps each foot under its hip
 _RAD2REV = 1.0 / (2.0 * math.pi)
 NOMINAL_POSE = np.array([
@@ -30,15 +30,15 @@ NOMINAL_POSE = np.array([
 
 # Pelvis height (m) of the nominal stance -- matches the biped.xml "home"
 # keyframe and the pelvis spawn position, so the feet rest on the floor.
-NOMINAL_HEIGHT = 0.7428
+NOMINAL_HEIGHT = 0.6995
 
 # The RL action is a pose offset (rev) added to NOMINAL_POSE: a in [-1, 1] maps
 # to +/- ACTION_SCALE rev per joint. Keeps the policy exploring near a stance.
-ACTION_SCALE = 0.20
+ACTION_SCALE = 0.5
 
 # Inner-loop PID gains (shared by the env and the deployed RLController so the
 # cascade behaves the same in training and at run time). rev / rev/s / Nm.
-INNER_KP = 100.0
+INNER_KP = 200.0
 INNER_KD = 10.0
 INNER_KI = 0.0
 INNER_INTEGRAL_LIMIT = 1.0
@@ -51,8 +51,8 @@ MAX_TORQUE = 40.0
 # ...) and averages INNER_HZ / OUTER_HZ -- the faithful behavior of two
 # asynchronous loops, not an artifact.
 INNER_HZ = 100   # inner PID loop rate
-OUTER_HZ = 50    # outer (RL) loop rate -- one env step is one outer tick
-SIM_HZ = 200     # MuJoCo physics rate (must be a common multiple of the above)
+OUTER_HZ = 25    # outer (RL) loop rate -- one env step is one outer tick
+SIM_HZ = 100     # MuJoCo physics rate (must be a common multiple of the above)
 assert SIM_HZ % INNER_HZ == 0 and SIM_HZ % OUTER_HZ == 0, \
     "SIM_HZ must be an integer multiple of both INNER_HZ and OUTER_HZ"
 SIM_DT = 1.0 / SIM_HZ
@@ -62,8 +62,8 @@ SIM_PER_INNER = SIM_HZ // INNER_HZ   # physics steps between inner PID updates (
 SIM_PER_OUTER = SIM_HZ // OUTER_HZ   # physics steps per outer / env step (10)
 
 # Termination thresholds.
-MIN_HEIGHT = 0.50   # pelvis height (m) below which we count it as fallen
-MAX_TILT = 0.7      # |roll| or |pitch| (rad) beyond which we count it as fallen
+MIN_HEIGHT = 0.5   # pelvis height (m) below which we count it as fallen
+MAX_TILT = 0.5      # |roll| or |pitch| (rad) beyond which we count it as fallen
 
 
 def read_pelvis(motor):
@@ -71,7 +71,7 @@ def read_pelvis(motor):
     return {
         "proj_grav": motor.projected_gravity(),
         "height": motor.get_pelvis_height(),
-        "lin_vel": motor.get_pelvis_lin_vel(),
+        "lin_vel": motor.get_pelvis_lin_vel_body(),   # body frame (x = forward)
         "ang_vel": motor.get_pelvis_ang_vel(),
     }
 
@@ -111,7 +111,7 @@ class BipedEnv(gym.Env):
 
     metadata = {"render_modes": ["human"], "render_fps": OUTER_HZ}
 
-    def __init__(self, model_path="biped.xml", max_steps=300, render_mode=None):
+    def __init__(self, model_path="biped.xml", max_steps=500, render_mode=None):
         super().__init__()
         self.dt = OUTER_DT
         self.max_steps = max_steps
@@ -152,7 +152,7 @@ class BipedEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         # Start from the standing pose with a small random perturbation.
-        pose = NOMINAL_POSE + self.np_random.uniform(-0.02, 0.02, size=N_JOINTS)
+        pose = NOMINAL_POSE + self.np_random.uniform(-0.06, 0.06, size=N_JOINTS)
         vel = self.np_random.uniform(-0.05, 0.05, size=N_JOINTS)
         self.motor.reset_state(pose=pose, vel=vel)
         self.inner.reset()
@@ -182,7 +182,9 @@ class BipedEnv(gym.Env):
 
         pelvis = read_pelvis(self.motor)
         roll, pitch, _ = self.motor.get_pelvis_rpy()
-        fwd_vel = float(pelvis["lin_vel"][0])
+        # Body-frame forward speed (lin_vel is now in the pelvis frame); forward
+        # is the pelvis -x axis, so negate. Stays "forward" even if the body yaws.
+        fwd_vel = -float(pelvis["lin_vel"][0])
         height = pelvis["height"]
 
         d_action = action - self._prev_action
@@ -201,8 +203,8 @@ class BipedEnv(gym.Env):
             + 1.0 * upright                          # stay upright (smooth)
             - 3.0 * height_err ** 2                  # hold nominal height
             - 0.02 * ang_vel_sq                      # damp body rotation
-            + 0.1 * fwd_vel                          # small forward incentive
-            - 0.001 * float(np.sum(torque ** 2))     # control effort
+            + 0.5 * fwd_vel                          # small forward incentive
+            - 0.0002 * float(np.sum(torque ** 2))     # control effort
             - 0.01 * float(np.sum(d_action ** 2))    # action smoothness
         )
 

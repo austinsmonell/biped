@@ -139,6 +139,21 @@ class SimMotor:
         a = self._root_qvel
         return self.data.qvel[a:a + 3].copy()
 
+    def get_pelvis_lin_vel_body(self):
+        """Pelvis linear velocity in the pelvis (body) frame, m/s.
+
+        The freejoint stores linear velocity in the world frame; rotating it by
+        the inverse of the pelvis orientation expresses it in the body frame, so
+        x stays "forward" regardless of yaw. This matches the body-frame angular
+        velocity and projected_gravity, and is what an onboard velocity estimator
+        reports -- so it ports to hardware without needing absolute yaw."""
+        v_world = self.get_pelvis_lin_vel()
+        conj = np.empty(4)
+        mujoco.mju_negQuat(conj, self.get_pelvis_quat())   # inverse (unit quat)
+        v_body = np.empty(3)
+        mujoco.mju_rotVecQuat(v_body, v_world, conj)
+        return v_body
+
     def get_pelvis_ang_vel(self):
         """Pelvis angular velocity (body frame, rad/s)."""
         self._require_root()
