@@ -4,8 +4,8 @@ import numpy as np
 import mujoco
 
 
-class SimMotor:
-    """MuJoCo stand-in for the biped's joint motors.
+class BipedSim:
+    """MuJoCo stand-in for the biped: its joint motors plus floating base.
 
     Units match the moteus convention used across these projects:
       - position in revolutions (MuJoCo internally uses radians)

@@ -80,7 +80,7 @@
   <!-- Initial state = the crouched nominal stance (biped_env.NOMINAL_POSE) at
        the nominal pelvis height. qpos = freejoint(x y z, quat w x y z) then the
        6 joints in actuator order. Angles are radians (compiler angle="radian"):
-       hip_pitch = +0.4, knee = -0.8. SimMotor resets to this keyframe, and
+       hip_pitch = +0.4, knee = -0.8. BipedSim resets to this keyframe, and
        loading the model in a viewer shows the biped already in this pose. -->
   <keyframe>
     <key name="home" qpos="0 0 0.6995  1 0 0 0   0 0.4 -0.8   0 0.4 -0.8"/>

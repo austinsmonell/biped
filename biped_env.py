@@ -4,7 +4,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-from sim_motor import SimMotor
+from biped_sim import BipedSim
 from controller import PIDController
 
 
@@ -66,13 +66,13 @@ MIN_HEIGHT = 0.5   # pelvis height (m) below which we count it as fallen
 MAX_TILT = 0.5      # |roll| or |pitch| (rad) beyond which we count it as fallen
 
 
-def read_pelvis(motor):
+def read_pelvis(robot):
     """Bundle the pelvis floating-base measurements used in the observation."""
     return {
-        "proj_grav": motor.projected_gravity(),
-        "height": motor.get_pelvis_height(),
-        "lin_vel": motor.get_pelvis_lin_vel_body(),   # body frame (x = forward)
-        "ang_vel": motor.get_pelvis_ang_vel(),
+        "proj_grav": robot.projected_gravity(),
+        "height": robot.get_pelvis_height(),
+        "lin_vel": robot.get_pelvis_lin_vel_body(),   # body frame (x = forward)
+        "ang_vel": robot.get_pelvis_ang_vel(),
     }
 
 
@@ -117,16 +117,16 @@ class BipedEnv(gym.Env):
         self.max_steps = max_steps
         self.render_mode = render_mode
 
-        self.motor = SimMotor(model_path, JOINT_NAMES)
+        self.robot = BipedSim(model_path, JOINT_NAMES)
         # Drive physics at SIM_HZ so the inner/outer rates land on exact step
         # counts regardless of the timestep written in the XML.
-        self.motor.model.opt.timestep = SIM_DT
+        self.robot.model.opt.timestep = SIM_DT
 
         # The model must initialize to the nominal stance; guard against the XML
         # "home" keyframe drifting from NOMINAL_POSE / NOMINAL_HEIGHT.
-        self.motor.reset_state()
-        assert np.allclose(self.motor.get_pos(), NOMINAL_POSE, atol=1e-3) and \
-            abs(self.motor.get_pelvis_height() - NOMINAL_HEIGHT) < 1e-3, \
+        self.robot.reset_state()
+        assert np.allclose(self.robot.get_pos(), NOMINAL_POSE, atol=1e-3) and \
+            abs(self.robot.get_pelvis_height() - NOMINAL_HEIGHT) < 1e-3, \
             "biped.xml 'home' keyframe does not match NOMINAL_POSE/NOMINAL_HEIGHT"
 
         self.inner = PIDController(
@@ -146,15 +146,15 @@ class BipedEnv(gym.Env):
         self._viewer = None
 
     def _obs(self):
-        return build_obs(self.motor.get_pos(), self.motor.get_vel(),
-                         read_pelvis(self.motor), self._prev_action)
+        return build_obs(self.robot.get_pos(), self.robot.get_vel(),
+                         read_pelvis(self.robot), self._prev_action)
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         # Start from the standing pose with a small random perturbation.
         pose = NOMINAL_POSE + self.np_random.uniform(-0.06, 0.06, size=N_JOINTS)
         vel = self.np_random.uniform(-0.05, 0.05, size=N_JOINTS)
-        self.motor.reset_state(pose=pose, vel=vel)
+        self.robot.reset_state(pose=pose, vel=vel)
         self.inner.reset()
         self._step_count = 0
         self._sim_tick = 0
@@ -174,14 +174,14 @@ class BipedEnv(gym.Env):
         torque = np.zeros(N_JOINTS)
         for _ in range(SIM_PER_OUTER):
             if self._sim_tick % SIM_PER_INNER == 0:
-                torque = self.inner.compute(self.motor.get_pos(),
-                                            self.motor.get_vel())
-                self.motor.set_torque(torque)
-            self.motor.step_n(1)
+                torque = self.inner.compute(self.robot.get_pos(),
+                                            self.robot.get_vel())
+                self.robot.set_torque(torque)
+            self.robot.step_n(1)
             self._sim_tick += 1
 
-        pelvis = read_pelvis(self.motor)
-        roll, pitch, _ = self.motor.get_pelvis_rpy()
+        pelvis = read_pelvis(self.robot)
+        roll, pitch, _ = self.robot.get_pelvis_rpy()
         # Body-frame forward speed (lin_vel is now in the pelvis frame); forward
         # is the pelvis -x axis, so negate. Stays "forward" even if the body yaws.
         fwd_vel = -float(pelvis["lin_vel"][0])
@@ -225,7 +225,7 @@ class BipedEnv(gym.Env):
         import mujoco.viewer
         if self._viewer is None:
             self._viewer = mujoco.viewer.launch_passive(
-                self.motor.model, self.motor.data)
+                self.robot.model, self.robot.data)
         self._viewer.sync()
 
     def close(self):

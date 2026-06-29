@@ -62,29 +62,29 @@ def make_controller():
 
 async def run_in_sim(controller, duration=None):
     import mujoco.viewer
-    from sim_motor import SimMotor
+    from biped_sim import BipedSim
 
-    motor = SimMotor("biped.xml", JOINT_NAMES)
+    robot = BipedSim("biped.xml", JOINT_NAMES)
     # Drive physics at SIM_HZ so the inner/outer loops land on exact step counts.
-    motor.model.opt.timestep = SIM_DT
-    motor.reset_state(pose=NOMINAL_POSE)
+    robot.model.opt.timestep = SIM_DT
+    robot.reset_state(pose=NOMINAL_POSE)
     print_every = max(1, int(round(print_period / SIM_DT)))
 
-    with mujoco.viewer.launch_passive(motor.model, motor.data) as viewer:
+    with mujoco.viewer.launch_passive(robot.model, robot.data) as viewer:
         viewer.cam.lookat[2] += 0.5
-        sim_start = motor.data.time
+        sim_start = robot.data.time
         wall_start = time.perf_counter()
         torque_cmd = np.zeros(N_JOINTS)
 
         try:
             sim_tick = 0
             while True:
-                if duration is not None and (motor.data.time - sim_start) >= duration:
+                if duration is not None and (robot.data.time - sim_start) >= duration:
                     break
 
-                pos = motor.get_pos()
-                vel = motor.get_vel()
-                pelvis = read_pelvis(motor)
+                pos = robot.get_pos()
+                vel = robot.get_vel()
+                pelvis = read_pelvis(robot)
 
                 # Outer loop (OUTER_HZ): refresh the controller's reference.
                 if sim_tick % SIM_PER_OUTER == 0:
@@ -92,15 +92,15 @@ async def run_in_sim(controller, duration=None):
                 # Inner loop (INNER_HZ): recompute the tracking torque.
                 if sim_tick % SIM_PER_INNER == 0:
                     torque_cmd = controller.compute(pos, vel, pelvis)
-                    motor.set_torque(torque_cmd)
+                    robot.set_torque(torque_cmd)
 
-                motor.step_n(1)   # one physics step at SIM_HZ
+                robot.step_n(1)   # one physics step at SIM_HZ
                 sim_tick += 1
                 viewer.sync()
 
                 if sim_tick % print_every == 0:
-                    roll, pitch, _ = motor.get_pelvis_rpy()
-                    msg = (f"time={motor.data.time - sim_start:+.3f} s  "
+                    roll, pitch, _ = robot.get_pelvis_rpy()
+                    msg = (f"time={robot.data.time - sim_start:+.3f} s  "
                            f"height={pelvis['height']:+.3f} m  "
                            f"roll={roll:+.3f} pitch={pitch:+.3f} rad  "
                            f"fwd_vel={pelvis['lin_vel'][0]:+.3f} m/s  "
@@ -114,7 +114,7 @@ async def run_in_sim(controller, duration=None):
                     print(msg)
 
                 # Synchronize wall clock to sim clock.
-                sim_elapsed = motor.data.time - sim_start
+                sim_elapsed = robot.data.time - sim_start
                 wall_elapsed = time.perf_counter() - wall_start
                 lag = sim_elapsed - wall_elapsed  # positive means sim is ahead
                 if lag > 0:
@@ -123,7 +123,7 @@ async def run_in_sim(controller, duration=None):
                         await asyncio.sleep(max(0, target_wall - time.perf_counter()))
                 # If lag < 0, sim is behind — run as fast as possible to catch up.
         finally:
-            motor.stop()
+            robot.stop()
 
 
 async def run_on_hardware(controller):

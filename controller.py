@@ -7,7 +7,7 @@ class PIDController:
     The biped's inner loop: drives every joint to a target pose and holds it.
     `target`, `kp`, `kd`, `ki` may be scalars (shared by all joints) or arrays
     (one per joint); everything broadcasts over the joint vector. I/O is in the
-    motor convention (rev, rev/s, Nm), matching SimMotor.
+    motor convention (rev, rev/s, Nm), matching BipedSim.
     """
 
     def __init__(self, target, kp, kd, ki, dt, integral_limit, max_torque,
