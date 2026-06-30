@@ -20,7 +20,7 @@ def main():
     # n_steps * n_envs, stays reasonable). Override with --n-envs.
     parser.add_argument("--n-envs", type=int, default=min(16, os.cpu_count() or 8))
     parser.add_argument("--out", default="ppo_biped", help="output model path (no extension)")
-    parser.add_argument("--warmstart", type=bool, default=True,
+    parser.add_argument("--warmstart", type=bool, default=False,
                         help="continue training from --out")
     args = parser.parse_args()
 

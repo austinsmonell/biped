@@ -34,7 +34,7 @@ NOMINAL_HEIGHT = 0.6995
 
 # The RL action is a pose offset (rev) added to NOMINAL_POSE: a in [-1, 1] maps
 # to +/- ACTION_SCALE rev per joint. Keeps the policy exploring near a stance.
-ACTION_SCALE = 0.5
+ACTION_SCALE = 0.2
 
 # Inner-loop PID gains (shared by the env and the deployed RLController so the
 # cascade behaves the same in training and at run time). rev / rev/s / Nm.
@@ -65,6 +65,8 @@ SIM_PER_OUTER = SIM_HZ // OUTER_HZ   # physics steps per outer / env step (10)
 MIN_HEIGHT = 0.5   # pelvis height (m) below which we count it as fallen
 MAX_TILT = 0.5      # |roll| or |pitch| (rad) beyond which we count it as fallen
 
+# Target
+SPEED_TARGET = 0.5 # pelivis speed target 1 m/s
 
 def read_pelvis(robot):
     """Bundle the pelvis floating-base measurements used in the observation."""
@@ -184,7 +186,10 @@ class BipedEnv(gym.Env):
         roll, pitch, _ = self.robot.get_pelvis_rpy()
         # Body-frame forward speed (lin_vel is now in the pelvis frame); forward
         # is the pelvis -x axis, so negate. Stays "forward" even if the body yaws.
-        fwd_vel = -float(pelvis["lin_vel"][0])
+        fwd_vel_err = -float(pelvis["lin_vel"][0])-SPEED_TARGET
+        # Lateral (sideways) pelvis speed -- body-frame y; should stay near 0 so
+        # the biped tracks straight ahead instead of drifting/swaying sideways.
+        lat_vel = float(pelvis["lin_vel"][1])
         height = pelvis["height"]
 
         d_action = action - self._prev_action
@@ -198,12 +203,22 @@ class BipedEnv(gym.Env):
         upright = -float(pelvis["proj_grav"][2])     # +1 upright, -> 0 on its side
         height_err = height - NOMINAL_HEIGHT
         ang_vel_sq = float(np.sum(pelvis["ang_vel"] ** 2))
+        # Keep the pelvis level (flat): penalize roll/pitch directly. Unlike the
+        # broad `upright` term, this has a strong gradient right around level, so
+        # it holds the body horizontal rather than just off its side.
+        level_err = roll ** 2 + pitch ** 2           # 0 when pelvis is flat
+        # Yaw rate: body-frame angular velocity about vertical (z). Penalize it
+        # so the biped holds its heading instead of spinning/turning.
+        yaw_rate = float(pelvis["ang_vel"][2])
         reward = (
-            0.5                                      # alive bonus
+              0.5                                    # alive bonus
             + 1.0 * upright                          # stay upright (smooth)
+            - 0.0 * level_err                        # keep pelvis level (flat) 0.5
             - 3.0 * height_err ** 2                  # hold nominal height
             - 0.02 * ang_vel_sq                      # damp body rotation
-            + 0.5 * fwd_vel                          # small forward incentive
+            - 0.0 * yaw_rate ** 2                    # minimize yaw rate (hold heading) 0.2
+            - 1.0  * fwd_vel_err ** 2                 # small forward incentive 3
+            - 0.0 * lat_vel ** 2                     # penalize sideways drift 0.8
             - 0.0002 * float(np.sum(torque ** 2))     # control effort
             - 0.01 * float(np.sum(d_action ** 2))    # action smoothness
         )
