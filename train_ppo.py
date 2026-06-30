@@ -4,12 +4,49 @@ import os
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import VecNormalize, SubprocVecEnv
+from stable_baselines3.common.callbacks import BaseCallback
 
 from biped_env import BipedEnv
 
 
 def vecnorm_path(out):
     return out + "_vecnormalize.pkl"
+
+
+class RewardTermCallback(BaseCallback):
+    """Log each reward component to TensorBoard so you can see how every term
+    contributes to (and competes for) the total reward during training.
+
+    BipedEnv.step() puts its per-term reward dict in info["reward_terms"]; this
+    accumulates them across a rollout and records the mean per-step value of each
+    term under reward/<term> (plus reward/total). On TensorBoard, overlaying the
+    reward/* curves shows which terms dominate and which are negligible."""
+
+    def _on_training_start(self):
+        self._sums = {}
+        self._count = 0
+
+    def _on_step(self):
+        for info in self.locals["infos"]:
+            terms = info.get("reward_terms")
+            if terms is None:
+                continue
+            for k, v in terms.items():
+                self._sums[k] = self._sums.get(k, 0.0) + v
+            self._count += 1
+        return True
+
+    def _on_rollout_end(self):
+        if self._count == 0:
+            return
+        total = 0.0
+        for k, v in self._sums.items():
+            mean = v / self._count
+            total += mean
+            self.logger.record(f"reward/{k}", mean)
+        self.logger.record("reward/total", total)
+        self._sums = {}
+        self._count = 0
 
 
 def main():
@@ -20,7 +57,7 @@ def main():
     # n_steps * n_envs, stays reasonable). Override with --n-envs.
     parser.add_argument("--n-envs", type=int, default=min(16, os.cpu_count() or 8))
     parser.add_argument("--out", default="ppo_biped", help="output model path (no extension)")
-    parser.add_argument("--warmstart", type=bool, default=False,
+    parser.add_argument("--warmstart", type=bool, default=True,
                         help="continue training from --out")
     args = parser.parse_args()
 
@@ -57,7 +94,7 @@ def main():
     try:
         print("Training started. Press Ctrl+C to force stop and save.")
         model.learn(total_timesteps=args.timesteps, progress_bar=True,
-                    tb_log_name="ppo")
+                    tb_log_name="ppo", callback=RewardTermCallback())
     except KeyboardInterrupt:
         print("\nTraining interrupted by user!")
     finally:

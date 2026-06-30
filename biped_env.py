@@ -66,7 +66,7 @@ MIN_HEIGHT = 0.5   # pelvis height (m) below which we count it as fallen
 MAX_TILT = 0.5      # |roll| or |pitch| (rad) beyond which we count it as fallen
 
 # Target
-SPEED_TARGET = 0.5 # pelivis speed target 1 m/s
+SPEED_TARGET = 1.0 # pelivis speed target 1 m/s
 
 def read_pelvis(robot):
     """Bundle the pelvis floating-base measurements used in the observation."""
@@ -210,18 +210,22 @@ class BipedEnv(gym.Env):
         # Yaw rate: body-frame angular velocity about vertical (z). Penalize it
         # so the biped holds its heading instead of spinning/turning.
         yaw_rate = float(pelvis["ang_vel"][2])
-        reward = (
-              0.5                                    # alive bonus
-            + 1.0 * upright                          # stay upright (smooth)
-            - 0.0 * level_err                        # keep pelvis level (flat) 0.5
-            - 3.0 * height_err ** 2                  # hold nominal height
-            - 0.02 * ang_vel_sq                      # damp body rotation
-            - 0.0 * yaw_rate ** 2                    # minimize yaw rate (hold heading) 0.2
-            - 1.0  * fwd_vel_err ** 2                 # small forward incentive 3
-            - 0.0 * lat_vel ** 2                     # penalize sideways drift 0.8
-            - 0.0002 * float(np.sum(torque ** 2))     # control effort
-            - 0.01 * float(np.sum(d_action ** 2))    # action smoothness
-        )
+        # Reward as a dict of named terms (the single source of truth). step()
+        # returns these per-term values in `info` so a training callback can log
+        # each one to TensorBoard and show how it influences the total reward.
+        reward_terms = {
+            "alive":         0.1,                              # alive bonus
+            "upright":       0.5 * upright,                    # stay upright (smooth)
+            "level":        -0.1 * level_err,                  # keep pelvis level (flat)
+            "height":       -6.0 * height_err ** 2,            # hold nominal height
+            "ang_vel":      -0.01 * ang_vel_sq,               # damp body rotation
+            "yaw_rate":     -0.01 * yaw_rate ** 2,            # minimize yaw rate (hold heading)
+            "fwd":          -3.0 * fwd_vel_err ** 2,          # forward-speed tracking
+            "lat":          -0.1 * lat_vel ** 2,              # penalize sideways drift
+            "torque":       -0.0001 * float(np.sum(torque ** 2)),   # control effort
+            "action_smooth": -0.01 * float(np.sum(d_action ** 2)),  # action smoothness
+        }
+        reward = float(sum(reward_terms.values()))
 
         fallen = (height < MIN_HEIGHT or abs(roll) > MAX_TILT
                   or abs(pitch) > MAX_TILT)
@@ -232,7 +236,7 @@ class BipedEnv(gym.Env):
         if self.render_mode == "human":
             self.render()
 
-        return self._obs(), reward, terminated, truncated, {}
+        return self._obs(), reward, terminated, truncated, {"reward_terms": reward_terms}
 
     def render(self):
         if self.render_mode != "human":
